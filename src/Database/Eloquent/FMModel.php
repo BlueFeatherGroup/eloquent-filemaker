@@ -7,8 +7,6 @@ use BlueFeather\EloquentFileMaker\Database\Query\FMBaseBuilder;
 use BlueFeather\EloquentFileMaker\Exceptions\FileMakerDataApiException;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\Concerns\AsPivot;
-use Illuminate\Database\Eloquent\Relations\Pivot;
 use Illuminate\Http\File;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Collection;
@@ -48,12 +46,6 @@ abstract class FMModel extends Model
     protected $readOnlyFields = [
     ];
 
-    /**
-     * The layout to be used when retrieving this model. This is equivalent to the standard laravel $table property and
-     * either one can be used.
-     * @var
-     */
-    protected $layout;
 
     /**
      * The internal FileMaker record ID. This is not the primary key of the record used in relationships. This field is
@@ -70,15 +62,6 @@ abstract class FMModel extends Model
     protected $modId;
 
 
-    public function __construct(array $attributes = [])
-    {
-        // Laravel uses tables normally, but FileMaker users layouts, so we'll let users set either one for clarity
-        // Set table if the user didn't set it and set $layout instead
-        if (!$this->table){
-            $this->setTable($this->layout);
-        }
-        parent::__construct($attributes);
-    }
 
     /**
      * Create a model object from the returned FileMaker data
@@ -242,23 +225,6 @@ abstract class FMModel extends Model
     }
 
 
-
-    /**
-     * @return string
-     */
-    public function getLayout()
-    {
-        return $this->getTable();
-    }
-
-    /**
-     * @param mixed $layout
-     */
-    public function setLayout($layout): void
-    {
-        $this->setTable($layout);
-    }
-
     /**
      * Create a new Eloquent query builder for the model.
      *
@@ -308,77 +274,6 @@ abstract class FMModel extends Model
 
             $this->fireModelEvent('updated', false);
         }
-
-        return true;
-    }
-
-    /**
-     *
-     * Set the keys for a save update query.
-     *
-     * @param Builder $query
-     * @return Builder
-     */
-    protected function setKeysForSaveQuery($query)
-    {
-        $query->toBase()->recordId($this->recordId);
-
-        return $query;
-    }
-
-    /**
-     * Perform a model insert operation.
-     *
-     * @param Builder $query
-     * @return bool
-     */
-    protected function performInsert(Builder $query)
-    {
-        if ($this->fireModelEvent('creating') === false) {
-            return false;
-        }
-
-        // First we'll need to create a fresh query instance and touch the creation and
-        // update timestamps on this model, which are maintained by us for developer
-        // convenience. After, we will just continue saving these model instances.
-        if ($this->usesTimestamps()) {
-            $this->updateTimestamps();
-        }
-
-        // If the model has an incrementing key, we can use the "insertGetId" method on
-        // the query builder, which will give us back the final inserted ID for this
-        // table from the database. Not all tables have to be incrementing though.
-        $attributes = $this->getAttributesForInsert();
-
-        if ($this->getIncrementing()) {
-            $query->createRecord();
-            // perform a refresh after the insert to get the generated primary key / ID and calculated data
-            $this->setRawAttributes(
-                $this->findByRecordId($this->recordId)->attributes
-            );
-        }
-
-        // If the table isn't incrementing we'll simply insert these attributes as they
-        // are. These attribute arrays must contain an "id" column previously placed
-        // there by the developer as the manually determined key for these models.
-        else {
-            if (empty($attributes)) {
-                return true;
-            }
-
-            $query->createRecord();
-        }
-
-
-
-        // We will go ahead and set the exists property to true, so that it is set when
-        // the created event is fired, just in case the developer tries to update it
-        // during the event. This will allow them to do so and run an update here.
-        $this->exists = true;
-
-        $this->wasRecentlyCreated = true;
-
-        $this->fireModelEvent('created', false);
 
         return true;
     }
@@ -436,16 +331,6 @@ abstract class FMModel extends Model
                 is_array($field) &&
                 sizeof($field) === 2
             );
-    }
-
-    /**
-     * Get the table associated with the model.
-     *
-     * @return string
-     */
-    public function getTable()
-    {
-        return $this->table ?? $this->layout ?? Str::snake(Str::pluralStudly(class_basename($this)));
     }
 
     /**
@@ -515,42 +400,6 @@ abstract class FMModel extends Model
     }
 
 
-    /**
-     * Qualify the given column name by the model's table.
-     *
-     * @param  string  $column
-     * @return string
-     */
-    public function qualifyColumn($column)
-    {
-        // we shouldn't ever qualify columns because they could be related data
-        // so just return without the table
-        return $column;
-    }
-    /**
-     * Reload the current model instance with fresh attributes from the database.
-     *
-     * @return $this
-     */
-    public function refresh()
-    {
-        // make sure we have a FileMaker internal recordId
-        if ($this->recordId === null) {
-            return $this;
-        }
 
-        $this->setRawAttributes(
-            $this->findByRecordId($this->recordId)->attributes
-        );
-
-        $this->load(collect($this->relations)->reject(function ($relation) {
-            return $relation instanceof Pivot
-                || (is_object($relation) && in_array(AsPivot::class, class_uses_recursive($relation), true));
-        })->keys()->all());
-
-        $this->syncOriginal();
-
-        return $this;
-    }
 
 }
